@@ -1,15 +1,20 @@
 const readline = require('readline-sync');
 const WINNING_SCORE = 5;
 const VALID_CHOICES = ['rock', 'paper', 'scissors', 'lizard', 'spock'];
-const VALID_MOVES = {
+const WINNING_COMBOS = {
   rock: ['scissors', 'lizard'],
   paper: ['rock', 'spock'],
   scissors: ['paper', 'lizard'],
   lizard: ['paper', 'spock'],
   spock: ['rock', 'scissors']
 };
+const SHORTHAND = { r: 'rock', p: 'paper', s: 'scissors', l: 'lizard', sp: 'spock' };
+// RESET_THRESHOLD determines how much data the computer
+// acts on. A lower threshold creates a more dynamic
+// computer response.
+const RESET_THRESHOLD = 10;
 
-function createPlayer(playerType) {
+function createPlayer() {
   return {
     move: null,
     score: 0,
@@ -24,19 +29,12 @@ function createPlayer(playerType) {
   };
 }
 
-/* 
-anaylze moveHistory to determine when any move is losing 50% of the games
-anaylze moveHistory to determine when any move is winning 50% of the games
-decrease chance of choosing losing choice
-increase chance of choosing winning choice
-*/
-
 function createComputer() {
   let playerObject = createPlayer();
 
   let computerObject = {
     move: null,
-    moveHistory: [],
+    moveHistory: { wins: [], losses: [], games: 0 },
     chanceMap: [
       { choice: 'rock', chance: 5 },
       { choice: 'paper', chance: 5 },
@@ -45,38 +43,70 @@ function createComputer() {
       { choice: 'spock', chance: 5 }
     ],
 
+    // Computer chooses from the five choices based on weighted randomness.
+    // Weights are initially equal.
     choose() {
       const choices = this.chanceMap;
       let total = 0;
       choices.forEach(choiceProb => total += choiceProb.chance);
       let rand = Math.floor(Math.random() * total);
 
-      for (let i = 0; i < choices.length; i++) {
-        let attack = choices[i];
+      for (let idx = 0; idx < choices.length; idx++) {
+        let attack = choices[idx];
         if (rand < attack.chance) {
           this.move = attack.choice;
           break;
         }
         rand -= attack.chance;
-      };
+      }
     },
 
-    recordLoss(losingMove) {
-      this.moveHistory.push(losingMove);
+    recordMove(roundWinner) {
+      if (roundWinner === 'human') {
+        this.moveHistory.losses.push(this.move);
+      } else if (roundWinner === 'computer') {
+        this.moveHistory.wins.push(this.move);
+      }
+      this.moveHistory.games += 1;
     },
 
-    // ChangeOdds iterates through the five valid moves and checking moveHistory for more than 
-    changeOdds() {
-      console.log('\n changeOdds called')
+    // Decreases weight of any move that has caused at
+    // least 50% of losses when method is called.
+    // Weights of each move are constrained between 1 and 10.
+    reduceLoss() {
       let choices = VALID_CHOICES;
-      for (let i = 0; i < choices.length; i++) {
-        let occurrence = this.moveHistory.filter(ele => ele === choices[i]).length;
-        if (occurrence / this.moveHistory.length > 0.3) {
-          let index = this.chanceMap.findIndex(ele => ele['choice'] === choices[i]);
-          this.chanceMap[index].chance -= this.chanceMap[index] > 1 ? 1 : 0;
-          console.log(this.chanceMap);
+      let losses = this.moveHistory.losses;
+
+      for (let idx = 0; idx < choices.length; idx++) {
+        let count = losses.filter(ele => ele === choices[idx]).length;
+        if (losses.length >= 5 && count / losses.length >= 0.5) {
+          let index = this.chanceMap
+            .findIndex(ele => ele['choice'] === choices[idx]);
+          this.chanceMap[index].chance -= this.chanceMap[index].chance > 1 ?
+            1 : 0;
         }
       }
+    },
+
+    // Increases weight of any move that has caused at
+    //least 50% of wins when method is called.
+    increaseWin() {
+      let choices = VALID_CHOICES;
+      let wins = this.moveHistory.wins;
+
+      for (let idx = 0; idx < choices.length; idx++) {
+        let count = wins.filter(ele => ele === choices[idx]).length;
+        if (wins.length >= 5 && count / wins.length > 0.5) {
+          let index = this.chanceMap
+            .findIndex(ele => ele['choice'] === choices[idx]);
+          this.chanceMap[index].chance += this.chanceMap[index].chance < 10 ?
+            1 : 0;
+        }
+      }
+    },
+
+    clearHistory() {
+      this.moveHistory = { wins: [], losses: [], games: 0 };
     },
   };
 
@@ -92,15 +122,17 @@ function createHuman() {
     choose() {
       let choice;
       let choices = VALID_CHOICES;
+      let shorthandChoices = Object.keys(SHORTHAND);
 
       while (true) {
-        console.log(`Please choose ${choices.join(', ')}:`);
+        console.log('Please choose rock(r), paper(p), scissors(s), lizard(l), spock(sp):');
         choice = readline.question();
-        if (choices.includes(choice)) break;
+        if (choices.includes(choice) || shorthandChoices.includes(choice)) {
+          break;
+        }
         console.log('Sorry, invalid choice.');
       }
-
-      this.move = choice;
+      this.move = choice.length > 2 ? choice : SHORTHAND[choice];
     },
   };
 
@@ -113,11 +145,10 @@ const RPSGame = {
   winningScore: WINNING_SCORE,
   roundWinner: null,
   gameWinner: null,
-
-
+  gameHistory: { human: [], computer: [] },
 
   displayWelcomeMessage() {
-    console.log('Welcome to Rock, Paper, Scissors, Lizard, Spock!');
+    console.log('Welcome to Rock, Paper, Scissors, Lizard, Spock!\n');
   },
 
   displayGoodbyeMessage() {
@@ -128,9 +159,9 @@ const RPSGame = {
     let humanMove = this.human.move;
     let computerMove = this.computer.move;
 
-    if (VALID_MOVES[humanMove].includes(computerMove)) {
+    if (WINNING_COMBOS[humanMove].includes(computerMove)) {
       this.roundWinner = 'human';
-    } else if (VALID_MOVES[computerMove].includes(humanMove)) {
+    } else if (WINNING_COMBOS[computerMove].includes(humanMove)) {
       this.roundWinner = 'computer';
     } else {
       this.roundWinner = 'tie';
@@ -147,14 +178,14 @@ const RPSGame = {
 
   displayRoundWinner() {
     let roundWinner = this.roundWinner;
-
+    console.log('\n');
     console.log(`You chose: ${this.human.move}`);
     console.log(`The computer chose: ${this.computer.move}`);
-
+    console.log('\n');
     if (roundWinner === 'human') {
       console.log('You win!');
     } else if (roundWinner === 'computer') {
-      console.log('Computer wins!');
+      console.log('Computer wins.');
     } else {
       console.log("It's a tie");
     }
@@ -166,8 +197,13 @@ const RPSGame = {
     if (gameWinner === 'human') {
       console.log('You win the game!');
     } else if (gameWinner === 'computer') {
-      console.log('The computer wins the game');
+      console.log('The computer wins the game.');
     }
+  },
+
+  recordGame() {
+    this.gameHistory.human.push(this.human.move);
+    this.gameHistory.computer.push(this.computer.move);
   },
 
   updateScore() {
@@ -179,7 +215,9 @@ const RPSGame = {
   },
 
   displayScore() {
-    console.log(`The scores: player ${this.human.score} | computer: ${this.computer.score} `);
+    console.log('\n');
+    console.log(`The scores are: player: ${this.human.score} | computer: ${this.computer.score}. First to ${WINNING_SCORE} wins!`);
+    console.log('\n');
   },
 
   playAgain() {
@@ -192,27 +230,52 @@ const RPSGame = {
     return answer.toLowerCase()[0] === 'y';
   },
 
+  pause() {
+    console.log('\n');
+    console.log('Please hit enter to continue...');
+    readline.question();
+  },
+
+  clear() {
+    console.clear();
+  },
+
+
+  // MAIN PROGRAM
   play() {
     this.displayWelcomeMessage();
+    // GAME LOOP
     while (true) {
       this.human.resetScore();
       this.computer.resetScore();
 
+      // MATCH LOOP
       while (this.human.score < this.winningScore &&
         this.computer.score < this.winningScore) {
+
+        if (this.roundWinner !== null) this.clear();
         this.human.choose();
         this.computer.choose();
+        this.recordGame();
 
         this.determineRoundWinner();
         this.updateScore();
         this.displayRoundWinner();
         this.displayScore();
-        if (this.roundWinner === 'human') this.computer.recordLoss(this.computer.move);
-        console.log(this.computer.moveHistory);
+        this.computer.recordMove(this.roundWinner);
+        if (this.human.score < this.winningScore &&
+          this.computer.score < this.winningScore) this.pause();
       }
+
       this.determineGameWinner();
       this.displayGameWinner();
-      this.computer.changeOdds();
+
+      // COMPUTER DECISION ADJUSTMENT
+      this.computer.reduceLoss();
+      this.computer.increaseWin();
+      if (this.computer.moveHistory.games > RESET_THRESHOLD) {
+        this.computer.clearHistory();
+      }
       if (!this.playAgain()) break;
     }
     this.displayGoodbyeMessage();
@@ -220,21 +283,3 @@ const RPSGame = {
 };
 
 RPSGame.play();
-
-/*
-Come up with some rules based on the history of moves to help the computer make its moves.
-For instance, if the human tends to win over 60% of his hands when the computer chooses "rock," 
-then decrease the likelihood that the computer will choose "rock." First, come up with an appropriate rule,
-then implement some history analysis. Use the analysis to adjust the weight of each choice -- for instance,
-increase the weight to increase the likelihood of choosing a particular move. Currently, the computer has a 
-33% chance of making any given move -- it's those odds that you need to weight. Finally, have the computer 
-consider the weight of each choice when choosing a move.
-
-choice rule to implement
-  if computer loses 50% when the human chooses rock, decrease the chance the computer chooses scissors or lizard
-check history if rule condition has been met
-change computer's chance of picking choice accordingly
-
-
-
-*/
