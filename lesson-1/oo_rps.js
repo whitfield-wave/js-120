@@ -8,9 +8,6 @@ const WINNING_COMBOS = {
   spock: ['rock', 'scissors']
 };
 const SHORTHAND = { r: 'rock', p: 'paper', s: 'scissors', l: 'lizard', sp: 'spock' };
-// RESET_THRESHOLD determines how much data the computer
-// acts on. A lower threshold creates a more dynamic
-// computer response.
 
 function createPlayer() {
   return {
@@ -33,30 +30,36 @@ function createComputer() {
   let computerObject = {
     moveHistory: { wins: [], losses: [] },
     roundCount: 0,
+    // resetThreshold not being used in current edition.
+    // If you want to shorten the span of the comp's W/L analyses you can use this and the reset methods.
     resetThreshold: 10,
-    chanceMap: [
-      { choice: 'rock', chance: 5 },
-      { choice: 'paper', chance: 5 },
-      { choice: 'scissors', chance: 5 },
-      { choice: 'lizard', chance: 5 },
-      { choice: 'spock', chance: 5 }
-    ],
+    chanceMap:
+    {
+      rock: 5,
+      paper: 5,
+      scissors: 5,
+      lizard: 5,
+      spock: 5
+    },
 
     // Computer chooses from the five choices based on weighted randomness.
     // Weights are initially equal.
     choose() {
-      const choices = this.chanceMap;
       let total = 0;
-      choices.forEach(choiceProb => total += choiceProb.chance);
+      for (let move in this.chanceMap) {
+        total += this.chanceMap[move];
+      }
+
       let rand = Math.floor(Math.random() * total);
 
-      for (let idx = 0; idx < choices.length; idx++) {
-        let attack = choices[idx];
-        if (rand < attack.chance) {
-          this.move = attack.choice;
+      const choices = Object.keys(this.chanceMap);
+
+      for (let move in this.chanceMap) {
+        if (rand < this.chanceMap[move]) {
+          this.move = move;
           break;
         }
-        rand -= attack.chance;
+        rand -= this.chanceMap[move];
       }
     },
 
@@ -76,9 +79,9 @@ function createComputer() {
       return this.roundCount > this.resetThreshold;
     },
 
-    getWinningMoves() {
+    getWinningMove() {
       let winCount = {}
-      this.moveHistory.wins.forEach(winCount[ele] = winCount[ele] ? winCount[ele] + 1 : 1);
+      this.moveHistory.wins.forEach(ele => winCount[ele] = winCount[ele] ? winCount[ele] + 1 : 1);
       for (move in winCount) {
         if (winCount[move] >= this.moveHistory.wins.length / 2) {
           return move;
@@ -86,9 +89,9 @@ function createComputer() {
       }
     },
 
-    getLosingMoves() {
+    getLosingMove() {
       let loseCount = {}
-      this.moveHistory.losses.forEach(loseCount[ele] = loseCount[ele] ? loseCount[ele] + 1 : 1);
+      this.moveHistory.losses.forEach(ele => loseCount[ele] = loseCount[ele] ? loseCount[ele] + 1 : 1);
       for (move in loseCount) {
         if (loseCount[move] >= this.moveHistory.losses.length / 2) {
           return move;
@@ -96,29 +99,23 @@ function createComputer() {
       }
     },
 
-    changeOdds() {
-      for (let list in this.moveHistory) {
-        for (let idx = 0; idx < VALID_CHOICES.length; idx++) {
-          let count = this.moveHistory[list]
-            .filter(ele => ele === VALID_CHOICES[idx]).length;
-          if (this.moveHistory[list].length >= 5
-            && count / this.moveHistory[list].length > 0.5) {
-            let index = this.chanceMap
-              .findIndex(ele => ele['choice'] === VALID_CHOICES[idx]);
-            switch (list) {
-              case 'wins':
-                this.chanceMap[index].chance
-                  += this.chanceMap[index].chance < 10 ?
-                    1 : 0;
-                break;
-              case 'losses':
-                this.chanceMap[index].chance
-                  -= this.chanceMap[index].chance > 1 ?
-                    1 : 0;
-                break;
-            }
-          }
-        }
+    decreaseLoss(move) {
+      if (move !== undefined) {
+        this.chanceMap[move] -= this.chanceMap[move] > 1 ? 1 : 0;
+      }
+    },
+
+    increaseWins(move) {
+      if (move !== undefined) {
+        this.chanceMap[move] += this.chanceMap[move] < 10 ? 1 : 0;
+      }
+    },
+
+    changeOdds(gameWinner) {
+      if (gameWinner === 'computer') {
+        this.increaseWins(this.getWinningMove());
+      } else {
+        this.decreaseLoss(this.getLosingMove());
       }
     },
 
@@ -296,8 +293,7 @@ const RPSGame = {
       this.displayGameWinner();
 
       // COMPUTER DECISION ADJUSTMENT
-      this.computer.changeOdds();
-      if (this.computer.shouldReset()) this.computer.clearHistory();
+      this.computer.changeOdds(this.gameWinner);
 
       if (!this.playAgain()) break;
     }
