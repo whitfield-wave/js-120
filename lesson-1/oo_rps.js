@@ -1,5 +1,4 @@
 const readline = require('readline-sync');
-const WINNING_SCORE = 5;
 const VALID_CHOICES = ['rock', 'paper', 'scissors', 'lizard', 'spock'];
 const WINNING_COMBOS = {
   rock: ['scissors', 'lizard'],
@@ -12,7 +11,6 @@ const SHORTHAND = { r: 'rock', p: 'paper', s: 'scissors', l: 'lizard', sp: 'spoc
 // RESET_THRESHOLD determines how much data the computer
 // acts on. A lower threshold creates a more dynamic
 // computer response.
-const RESET_THRESHOLD = 10;
 
 function createPlayer() {
   return {
@@ -33,8 +31,9 @@ function createComputer() {
   let playerObject = createPlayer();
 
   let computerObject = {
-    move: null,
-    moveHistory: { wins: [], losses: [], games: 0 },
+    moveHistory: { wins: [], losses: [] },
+    roundCount: 0,
+    resetThreshold: 10,
     chanceMap: [
       { choice: 'rock', chance: 5 },
       { choice: 'paper', chance: 5 },
@@ -67,46 +66,65 @@ function createComputer() {
       } else if (roundWinner === 'computer') {
         this.moveHistory.wins.push(this.move);
       }
-      this.moveHistory.games += 1;
     },
 
-    // Decreases weight of any move that has caused at
-    // least 50% of losses when method is called.
-    // Weights of each move are constrained between 1 and 10.
-    reduceLoss() {
-      let choices = VALID_CHOICES;
-      let losses = this.moveHistory.losses;
+    countRound() {
+      this.roundCount += 1;
+    },
 
-      for (let idx = 0; idx < choices.length; idx++) {
-        let count = losses.filter(ele => ele === choices[idx]).length;
-        if (losses.length >= 5 && count / losses.length >= 0.5) {
-          let index = this.chanceMap
-            .findIndex(ele => ele['choice'] === choices[idx]);
-          this.chanceMap[index].chance -= this.chanceMap[index].chance > 1 ?
-            1 : 0;
+    shouldReset() {
+      return this.roundCount > this.resetThreshold;
+    },
+
+    getWinningMoves() {
+      let winCount = {}
+      this.moveHistory.wins.forEach(winCount[ele] = winCount[ele] ? winCount[ele] + 1 : 1);
+      for (move in winCount) {
+        if (winCount[move] >= this.moveHistory.wins.length / 2) {
+          return move;
         }
       }
     },
 
-    // Increases weight of any move that has caused at
-    //least 50% of wins when method is called.
-    increaseWin() {
-      let choices = VALID_CHOICES;
-      let wins = this.moveHistory.wins;
+    getLosingMoves() {
+      let loseCount = {}
+      this.moveHistory.losses.forEach(loseCount[ele] = loseCount[ele] ? loseCount[ele] + 1 : 1);
+      for (move in loseCount) {
+        if (loseCount[move] >= this.moveHistory.losses.length / 2) {
+          return move;
+        }
+      }
+    },
 
-      for (let idx = 0; idx < choices.length; idx++) {
-        let count = wins.filter(ele => ele === choices[idx]).length;
-        if (wins.length >= 5 && count / wins.length > 0.5) {
-          let index = this.chanceMap
-            .findIndex(ele => ele['choice'] === choices[idx]);
-          this.chanceMap[index].chance += this.chanceMap[index].chance < 10 ?
-            1 : 0;
+    changeOdds() {
+      for (let list in this.moveHistory) {
+        for (let idx = 0; idx < VALID_CHOICES.length; idx++) {
+          let count = this.moveHistory[list]
+            .filter(ele => ele === VALID_CHOICES[idx]).length;
+          if (this.moveHistory[list].length >= 5
+            && count / this.moveHistory[list].length > 0.5) {
+            let index = this.chanceMap
+              .findIndex(ele => ele['choice'] === VALID_CHOICES[idx]);
+            switch (list) {
+              case 'wins':
+                this.chanceMap[index].chance
+                  += this.chanceMap[index].chance < 10 ?
+                    1 : 0;
+                break;
+              case 'losses':
+                this.chanceMap[index].chance
+                  -= this.chanceMap[index].chance > 1 ?
+                    1 : 0;
+                break;
+            }
+          }
         }
       }
     },
 
     clearHistory() {
-      this.moveHistory = { wins: [], losses: [], games: 0 };
+      this.moveHistory = { wins: [], losses: [] };
+      this.roundCount = 0;
     },
   };
 
@@ -117,7 +135,6 @@ function createHuman() {
   let playerObject = createPlayer();
 
   let humanObject = {
-    move: null,
 
     choose() {
       let choice;
@@ -142,7 +159,7 @@ function createHuman() {
 const RPSGame = {
   human: createHuman(),
   computer: createComputer(),
-  winningScore: WINNING_SCORE,
+  winningScore: 5,
   roundWinner: null,
   gameWinner: null,
   gameHistory: { human: [], computer: [] },
@@ -216,7 +233,7 @@ const RPSGame = {
 
   displayScore() {
     console.log('\n');
-    console.log(`The scores are: player: ${this.human.score} | computer: ${this.computer.score}. First to ${WINNING_SCORE} wins!`);
+    console.log(`The scores are: player: ${this.human.score} | computer: ${this.computer.score}. First to ${this.winningScore} wins!`);
     console.log('\n');
   },
 
@@ -240,9 +257,32 @@ const RPSGame = {
     console.clear();
   },
 
+  matchLoop() {
+    while (this.human.score < this.winningScore &&
+      this.computer.score < this.winningScore) {
+
+      if (this.roundWinner !== null) this.clear();
+      this.human.choose();
+      this.computer.choose();
+      this.recordGame();
+
+      this.determineRoundWinner();
+      this.updateScore();
+      this.displayRoundWinner();
+      this.displayScore();
+      this.computer.recordMove(this.roundWinner);
+      this.computer.countRound();
+
+      // pauses before next round if winning score isn't reached
+      if (this.human.score < this.winningScore &&
+        this.computer.score < this.winningScore) this.pause();
+    }
+  },
+
 
   // MAIN PROGRAM
   play() {
+    this.clear();
     this.displayWelcomeMessage();
     // GAME LOOP
     while (true) {
@@ -250,32 +290,15 @@ const RPSGame = {
       this.computer.resetScore();
 
       // MATCH LOOP
-      while (this.human.score < this.winningScore &&
-        this.computer.score < this.winningScore) {
-
-        if (this.roundWinner !== null) this.clear();
-        this.human.choose();
-        this.computer.choose();
-        this.recordGame();
-
-        this.determineRoundWinner();
-        this.updateScore();
-        this.displayRoundWinner();
-        this.displayScore();
-        this.computer.recordMove(this.roundWinner);
-        if (this.human.score < this.winningScore &&
-          this.computer.score < this.winningScore) this.pause();
-      }
+      this.matchLoop();
 
       this.determineGameWinner();
       this.displayGameWinner();
 
       // COMPUTER DECISION ADJUSTMENT
-      this.computer.reduceLoss();
-      this.computer.increaseWin();
-      if (this.computer.moveHistory.games > RESET_THRESHOLD) {
-        this.computer.clearHistory();
-      }
+      this.computer.changeOdds();
+      if (this.computer.shouldReset()) this.computer.clearHistory();
+
       if (!this.playAgain()) break;
     }
     this.displayGoodbyeMessage();
